@@ -71,7 +71,7 @@ socket.on('room-joined', ({ code, musicState }) => {
 
 
   if (isPlayerReady && musicState.videoId) {
-    isSyncing = true;
+    setSyncing(true);
     player.loadVideoById(musicState.videoId, musicState.currentTime);
 
     if (musicState.isPlaying) {
@@ -95,7 +95,21 @@ const volumeBar = document.getElementById('volumeBar');
 
 
 // Track if we're currently syncing (to prevent feedback loops)
+// Track if we're currently syncing (to prevent feedback loops)
 let isSyncing = false;
+let syncTimeout = null;
+
+function setSyncing(value) {
+  isSyncing = value;
+  if (syncTimeout) clearTimeout(syncTimeout);
+
+  if (value === true) {
+    // Safety: Auto-reset after 500ms to prevent getting stuck
+    syncTimeout = setTimeout(() => {
+      isSyncing = false;
+    }, 500);
+  }
+}
 
 // ========================================
 // 3. YOUTUBE PLAYER SETUP
@@ -208,7 +222,7 @@ function updateAlbumArt(isPlaying) {
 // Receive play event from other users
 socket.on('play', (data) => {
   if (isPlayerReady) {
-    isSyncing = true;
+    setSyncing(true);
     player.seekTo(data.currentTime, true);
     player.playVideo();
     updateAlbumArt(true); // Animate album art
@@ -218,7 +232,7 @@ socket.on('play', (data) => {
 // Receive pause event from other users
 socket.on('pause', (data) => {
   if (isPlayerReady) {
-    isSyncing = true;
+    setSyncing(true);
     player.seekTo(data.currentTime, true);
     player.pauseVideo();
     updateAlbumArt(false); // Stop animation
@@ -228,7 +242,7 @@ socket.on('pause', (data) => {
 // Receive seek event from other users
 socket.on('seek', (data) => {
   if (isPlayerReady) {
-    isSyncing = true;
+    setSyncing(true);
     player.seekTo(data.currentTime, true);
   }
 });
@@ -236,7 +250,7 @@ socket.on('seek', (data) => {
 // Receive video change event
 socket.on('video-change', (data) => {
   if (isPlayerReady) {
-    isSyncing = true;
+    setSyncing(true);
     player.loadVideoById(data.videoId, 0);
 
     const thumbnail = `https://img.youtube.com/vi/${data.videoId}/hqdefault.jpg`;
@@ -297,7 +311,7 @@ document.getElementById('loadVideoBtn').addEventListener('click', () => {
 
     // 2. Load locally IMMEDIATELY (Fix for "not playing on my screen")
     if (isPlayerReady) {
-      isSyncing = true; // Prevent loop
+      setSyncing(true); // Prevent loop
       player.loadVideoById(videoId, 0);
 
       const thumbnail = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
