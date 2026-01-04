@@ -432,7 +432,7 @@ function updateUserCount(count) {
 }
 
 // ========================================
-// 9. CONNECTION STATUS
+// 9. CONNECTION STATUS & SYNC DEBUG
 // ========================================
 socket.on('connect', () => {
   document.getElementById('syncStatus').innerHTML = '🟢 Connected';
@@ -440,6 +440,39 @@ socket.on('connect', () => {
 
 socket.on('disconnect', () => {
   document.getElementById('syncStatus').innerHTML = '🔴 Disconnected';
+});
+
+// Force Sync Button
+document.getElementById('syncNowBtn').addEventListener('click', () => {
+  socket.emit('request-sync', currentRoomCode);
+});
+
+// Receive Sync Data from Server
+socket.on('sync-response', (data) => {
+  if (!isPlayerReady) return;
+
+  // Calculate latency (approx)
+  // For now, straight apply server time
+  const serverTime = data.musicState.currentTime;
+  const isPlaying = data.musicState.isPlaying;
+  const timestamp = data.musicState.timestamp; // When the server state was last updated
+
+  // If playing, calculate elapsed time since last update
+  let targetTime = serverTime;
+  if (isPlaying) {
+    const timeDiff = (Date.now() - timestamp) / 1000;
+    targetTime += timeDiff;
+  }
+
+  console.log(`Syncing to ${targetTime} (Server: ${serverTime}, diff: ${Date.now() - timestamp}ms)`);
+  document.getElementById('debugInfo').textContent = `Seek: ${targetTime.toFixed(2)}s | Lag: ${(Date.now() - timestamp)}ms`;
+
+  player.seekTo(targetTime, true);
+  if (isPlaying) {
+    player.playVideo();
+  } else {
+    player.pauseVideo();
+  }
 });
 
 // ========================================

@@ -94,7 +94,17 @@ io.on('connection', (socket) => {
       room.musicState.videoId = videoId;
       room.musicState.isPlaying = false;
       room.musicState.currentTime = 0;
+      room.musicState.timestamp = Date.now(); // Update timestamp on video change
       io.to(roomCode).emit('video-change', { videoId });
+    }
+  });
+
+  socket.on('request-sync', (roomCode) => {
+    const room = rooms.get(roomCode);
+    if (room) {
+      socket.emit('sync-response', {
+        musicState: room.musicState
+      });
     }
   });
 

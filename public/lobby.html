@@ -88,32 +88,43 @@
                 </div>
 
                 <div id="syncStatus" style="margin-top: 20px; font-size: 0.8rem; color: var(--primary);">
-                    🟢 Synced
+                    <div class="sync-status" id="syncStatus"
+                        style="margin-top: 20px; font-size: 0.8rem; color: var(--primary);">
+                        🟢 Connected & Synced
+                    </div>
+
+                    <!-- Debug/Sync Control -->
+                    <button id="syncNowBtn" class="btn-secondary"
+                        style="margin-top: 10px; padding: 8px 16px; font-size: 0.8em; background: rgba(255,255,255,0.1);">
+                        🔄 Force Sync
+                    </button>
+                    <div id="debugInfo" style="margin-top: 5px; font-size: 0.7em; color: #666; font-family: monospace;">
+                    </div>
                 </div>
+
+                <!-- Right: Chat -->
+                <aside class="chat-aside">
+                    <div class="chat-header">
+                        <h3>💬 Live Chat</h3>
+                    </div>
+
+                    <div id="chatMessages" class="chat-messages">
+                        <!-- Messages go here -->
+                    </div>
+
+                    <div class="chat-input-area">
+                        <input type="text" id="chatInput" placeholder="Type a message..." style="flex: 1;">
+                        <button id="sendBtn" class="btn-primary"
+                            style="padding: 10px 20px; border-radius: 12px;">➤</button>
+                    </div>
+                </aside>
             </div>
-
-            <!-- Right: Chat -->
-            <aside class="chat-aside">
-                <div class="chat-header">
-                    <h3>💬 Live Chat</h3>
-                </div>
-
-                <div id="chatMessages" class="chat-messages">
-                    <!-- Messages go here -->
-                </div>
-
-                <div class="chat-input-area">
-                    <input type="text" id="chatInput" placeholder="Type a message..." style="flex: 1;">
-                    <button id="sendBtn" class="btn-primary" style="padding: 10px 20px; border-radius: 12px;">➤</button>
-                </div>
-            </aside>
         </div>
-    </div>
 
-    <!-- Scripts -->
-    <script src="/socket.io/socket.io.js"></script>
-    <script src="https://www.youtube.com/iframe_api"></script>
-    <script src="script.js"></script>
+        <!-- Scripts -->
+        <script src="/socket.io/socket.io.js"></script>
+        <script src="https://www.youtube.com/iframe_api"></script>
+        <script src="script.js"></script>
 
 </body>
 
