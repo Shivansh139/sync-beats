@@ -289,10 +289,23 @@ document.getElementById('loadVideoBtn').addEventListener('click', () => {
   const videoId = extractVideoId(url);
 
   if (videoId) {
+    // 1. Emit to server (so others get it)
     socket.emit('video-change', {
       roomCode: currentRoomCode,
       videoId
     });
+
+    // 2. Load locally IMMEDIATELY (Fix for "not playing on my screen")
+    if (isPlayerReady) {
+      isSyncing = true; // Prevent loop
+      player.loadVideoById(videoId, 0);
+
+      const thumbnail = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+      const albumArt = document.getElementById('albumArt');
+      albumArt.style.backgroundImage = `url(${thumbnail})`;
+      albumArt.style.backgroundSize = 'cover';
+      albumArt.textContent = '';
+    }
 
     document.getElementById('videoUrl').value = '';
   } else {
