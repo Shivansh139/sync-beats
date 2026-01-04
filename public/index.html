@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Sync Beats</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="center-container">
+        <div class="auth-card glass-panel">
+            <h1 class="logo-large">🎵 Sync Beats</h1>
+            <p class="subtitle">Listen Together, Sync Forever</p>
+
+            <form id="loginForm" style="text-align: left;">
+                <div style="margin-bottom: 25px;">
+                    <label for="username" style="display:block; margin-bottom: 10px; font-weight: 600;">Username</label>
+                    <input type="text" id="username" placeholder="e.g. Shivansh" required minlength="2" maxlength="20"
+                        autocomplete="off" style="width: 100%;">
+                </div>
+
+                <button type="submit" class="btn-primary" style="width: 100%;">
+                    Join Session
+                </button>
+            </form>
+
+            <p style="margin-top: 25px; font-size: 0.9rem; color: var(--text-muted);">
+                No password needed. Just pick a username!
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Check if already logged in
+        // const username = localStorage.getItem('username'); // Unused here now
+
+        // Handle login form submission
+        document.getElementById('loginForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            const usernameInput = document.getElementById('username');
+            const username = usernameInput.value.trim();
+
+            if (username.length >= 2) {
+                // Store username in localStorage
+                localStorage.setItem('username', username);
+
+                // Redirect to main app
+                window.location.href = '/lobby.html';
+            } else {
+                alert('Username must be at least 2 characters long');
+            }
+        });
+    </script>
+</body>
+
+</html>

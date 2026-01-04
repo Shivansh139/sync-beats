@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sync Beats - Lobby</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Font Awesome for Icons (Optional, but good for emojis fallback if needed, keeping simple for now) -->
+</head>
+
+<body>
+
+    <!-- 1. Room Gate (Lobby Selection) -->
+    <div id="roomGate" class="center-container">
+        <div class="auth-card glass-panel">
+            <h1 class="logo-large">🎵 Sync Beats</h1>
+            <p class="subtitle">Join a room to start listening</p>
+
+            <button id="createRoomBtn" class="btn-primary" style="width: 100%; margin-bottom: 20px;">
+                ✨ Create New Room
+            </button>
+
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <input type="text" id="roomCodeInput" placeholder="Enter Room Code"
+                    style="flex: 1; text-transform: uppercase;">
+                <button id="joinRoomBtn" class="btn-secondary">
+                    Join
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. Main App Interface -->
+    <div id="app" class="app-layout" style="display:none;">
+
+        <!-- Header -->
+        <header class="app-header glass-panel" style="border:none; border-bottom: 1px solid var(--glass-border);">
+            <div class="brand">
+                <h1>🎵 Sync Beats</h1>
+                <span id="roomCodeDisplay" class="badge badge-green">ROOM: ---</span>
+                <span id="userCount" class="badge">👥 1</span>
+            </div>
+
+            <div style="display: flex; gap: 15px; align-items: center;">
+                <span id="usernameDisplay" style="font-weight: 600;">User</span>
+                <button id="logoutBtn" class="btn-secondary"
+                    style="padding: 8px 18px; font-size: 0.8rem;">Logout</button>
+            </div>
+        </header>
+
+        <!-- Main Body -->
+        <div class="main-body">
+
+            <!-- Left: Player -->
+            <div class="player-section">
+                <!-- Hidden YT Player (must be 'visible' to simple layout for API to init) -->
+                <div id="player-wrapper" style="position: absolute; top: -9999px; left: -9999px; visibility: hidden;">
+                    <div id="player"></div>
+                </div>
+
+
+                <div class="album-art-container" id="albumArt">
+                    🎵
+                </div>
+
+                <div class="track-info">
+                    <h2 id="trackTitle">Sync Beats</h2>
+                    <p style="color: var(--text-muted);">Ready to play</p>
+                </div>
+
+                <div class="controls-row">
+                    <button id="playPauseBtn" class="play-btn-large">▶</button>
+
+                    <input type="range" id="seekBar" value="0" min="0" max="100">
+
+                    <!-- Volume (Small) -->
+                    <div style="width: 100px; display: flex; align-items: center; gap: 8px;">
+                        <span>🔊</span>
+                        <input type="range" id="volumeBar" value="50" min="0" max="100">
+                    </div>
+                </div>
+
+                <!-- Load Video Input -->
+                <div style="width: 100%; max-width: 500px; margin-top: 40px; display: flex; gap: 10px;">
+                    <input type="text" id="videoUrl" placeholder="Paste YouTube URL..." style="flex: 1;">
+                    <button id="loadVideoBtn" class="btn-secondary">Load</button>
+                </div>
+
+                <div id="syncStatus" style="margin-top: 20px; font-size: 0.8rem; color: var(--primary);">
+                    🟢 Synced
+                </div>
+            </div>
+
+            <!-- Right: Chat -->
+            <aside class="chat-aside">
+                <div class="chat-header">
+                    <h3>💬 Live Chat</h3>
+                </div>
+
+                <div id="chatMessages" class="chat-messages">
+                    <!-- Messages go here -->
+                </div>
+
+                <div class="chat-input-area">
+                    <input type="text" id="chatInput" placeholder="Type a message..." style="flex: 1;">
+                    <button id="sendBtn" class="btn-primary" style="padding: 10px 20px; border-radius: 12px;">➤</button>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script src="script.js"></script>
+
+</body>
+
+</html>
