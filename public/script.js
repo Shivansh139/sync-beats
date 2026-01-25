@@ -62,7 +62,7 @@ socket.on('room-created', ({ code }) => {
   });
 });
 
-socket.on('room-joined', ({ code, musicState }) => {
+socket.on('room-joined', ({ code, musicState, queue }) => {
   currentRoomCode = code;
   document.getElementById('roomCodeDisplay').textContent = `Room: ${code}`;
 
@@ -79,6 +79,10 @@ socket.on('room-joined', ({ code, musicState }) => {
     } else {
       player.pauseVideo();
     }
+  }
+
+  if (queue) {
+    renderQueue(queue);
   }
 });
 
@@ -187,6 +191,10 @@ function onPlayerStateChange(event) {
 
     updateAlbumArt(false);
     playPauseBtn.textContent = "▶";
+  }
+  else if (event.data === YT.PlayerState.ENDED) {
+    // Video ended, play next in queue
+    socket.emit('play-next', { roomCode: currentRoomCode });
   }
 
 }
@@ -340,6 +348,106 @@ function extractVideoId(url) {
   }
   return null;
 }
+
+// ========================================
+// 6.1 QUEUE LOGIC
+// ========================================
+
+document.getElementById('addToQueueBtn').addEventListener('click', () => {
+  const url = document.getElementById('videoUrl').value.trim();
+  const videoId = extractVideoId(url);
+
+  if (videoId) {
+    // Fetch metadata (title) before adding
+    fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`)
+      .then(res => res.json())
+      .then(data => {
+        const title = data.title || 'Unknown Video';
+        const videoData = {
+          videoId,
+          title,
+          thumbnail: `https://img.youtube.com/vi/${videoId}/default.jpg`,
+          addedBy: username
+        };
+
+        socket.emit('add-to-queue', {
+          roomCode: currentRoomCode,
+          video: videoData
+        });
+
+        document.getElementById('videoUrl').value = ''; // Clear input
+      })
+      .catch(err => {
+        console.error('Error fetching video title:', err);
+        // Fallback if fetch fails
+        const videoData = {
+          videoId,
+          title: 'Video ' + videoId, // Fallback title
+          thumbnail: `https://img.youtube.com/vi/${videoId}/default.jpg`,
+          addedBy: username
+        };
+        socket.emit('add-to-queue', {
+          roomCode: currentRoomCode,
+          video: videoData
+        });
+        document.getElementById('videoUrl').value = '';
+      });
+
+  } else {
+    alert('Invalid YouTube URL');
+  }
+});
+
+socket.on('queue-updated', (queue) => {
+  renderQueue(queue);
+});
+
+function renderQueue(queue) {
+  const queueList = document.getElementById('queueList');
+  const queueCount = document.getElementById('queueCount');
+
+  queueList.innerHTML = '';
+  queueCount.textContent = `(${queue.length})`;
+
+  if (queue.length === 0) {
+    queueList.innerHTML = `
+            <div class="queue-placeholder" style="text-align: center; color: var(--text-muted); font-size: 0.9em; padding: 20px;">
+                Queue is empty
+            </div>
+        `;
+    return;
+  }
+
+  queue.forEach((item, index) => {
+    const div = document.createElement('div');
+    div.className = 'queue-item glass-panel';
+    div.style.display = 'flex';
+    div.style.alignItems = 'center';
+    div.style.gap = '10px';
+    div.style.padding = '8px';
+    div.style.marginBottom = '5px';
+    div.style.borderRadius = '8px';
+    div.style.background = 'rgba(255,255,255,0.05)';
+
+    div.innerHTML = `
+            <img src="${item.thumbnail}" style="width: 50px; height: 38px; object-fit: cover; border-radius: 4px;">
+            <div style="flex: 1; overflow: hidden;">
+                <div style="font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500;">${item.title}</div>
+                <div style="font-size: 0.7rem; color: var(--text-muted);">Added by ${item.addedBy}</div>
+            </div>
+            <button onclick="removeFromQueue(${index})" style="background: none; border: none; color: #ff5555; cursor: pointer; padding: 5px;">✖</button>
+        `;
+    queueList.appendChild(div);
+  });
+}
+
+// Make globally available so onclick works
+window.removeFromQueue = (index) => {
+  socket.emit('remove-from-queue', {
+    roomCode: currentRoomCode,
+    index
+  });
+};
 
 // ========================================
 // 7. CHAT FUNCTIONALITY

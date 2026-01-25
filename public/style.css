@@ -105,8 +105,15 @@ input[type="text"]:focus {
 }
 
 @keyframes floatIn {
-    from { opacity: 0; transform: translateY(30px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .logo-large {
@@ -191,7 +198,7 @@ input[type="text"]:focus {
     align-items: center;
     justify-content: center;
     font-size: 80px;
-    box-shadow: 0 30px 60px rgba(0,0,0,0.5);
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
     margin-bottom: 40px;
     transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
@@ -202,8 +209,15 @@ input[type="text"]:focus {
 }
 
 @keyframes breathe {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.03); }
+
+    0%,
+    100% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.03);
+    }
 }
 
 .track-info {
@@ -247,7 +261,7 @@ input[type=range] {
     flex: 1;
     height: 6px;
     -webkit-appearance: none;
-    background: rgba(255,255,255,0.1);
+    background: rgba(255, 255, 255, 0.1);
     border-radius: 3px;
     cursor: pointer;
 }
@@ -258,8 +272,9 @@ input[type=range]::-webkit-slider-thumb {
     height: 16px;
     background: var(--text-main);
     border-radius: 50%;
-    box-shadow: 0 0 10px rgba(0,0,0,0.5);
-    margin-top: -5px; /* adjust for track height */
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    margin-top: -5px;
+    /* adjust for track height */
 }
 
 input[type=range]::-webkit-slider-runnable-track {
@@ -267,7 +282,25 @@ input[type=range]::-webkit-slider-runnable-track {
     border-radius: 3px;
 }
 
-/* --- Chat Section --- */
+/* --- Queue Section (Left) --- */
+.queue-aside {
+    width: 350px;
+    background: rgba(0, 0, 0, 0.3);
+    border-right: 1px solid var(--glass-border);
+    display: flex;
+    flex-direction: column;
+}
+
+.queue-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* --- Chat Section (Right) --- */
 .chat-aside {
     width: 350px;
     background: rgba(0, 0, 0, 0.3);
@@ -279,7 +312,7 @@ input[type=range]::-webkit-slider-runnable-track {
 .chat-header {
     padding: 20px;
     border-bottom: 1px solid var(--glass-border);
-    background: rgba(255,255,255,0.02);
+    background: rgba(255, 255, 255, 0.02);
 }
 
 .chat-messages {
@@ -303,8 +336,15 @@ input[type=range]::-webkit-slider-runnable-track {
 }
 
 @keyframes popIn {
-    from { opacity: 0; transform: scale(0.9) translateY(10px); }
-    to { opacity: 1; transform: scale(1) translateY(0); }
+    from {
+        opacity: 0;
+        transform: scale(0.9) translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
 }
 
 .message-bubble.system {
@@ -312,10 +352,11 @@ input[type=range]::-webkit-slider-runnable-track {
     background: transparent;
     color: var(--text-muted);
     font-size: 0.85rem;
-    border: 1px solid rgba(255,255,255,0.1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 20px;
     padding: 6px 16px;
-    border-bottom-left-radius: 20px; /* Reset */
+    border-bottom-left-radius: 20px;
+    /* Reset */
 }
 
 .message-meta {
@@ -334,14 +375,31 @@ input[type=range]::-webkit-slider-runnable-track {
 }
 
 /* Responsive */
-@media (max-width: 900px) {
+@media (max-width: 1200px) {
     .main-body {
         flex-direction: column;
     }
+
+    .queue-aside,
     .chat-aside {
         width: 100%;
-        height: 40%;
-        border-left: none;
+        height: 300px;
+        /* Fixed height when stacked */
+        border: none;
         border-top: 1px solid var(--glass-border);
+        border-bottom: 1px solid var(--glass-border);
+    }
+
+    /* Order: Player (Top) -> Queue -> Chat */
+    .player-section {
+        order: 1;
+    }
+
+    .queue-aside {
+        order: 2;
+    }
+
+    .chat-aside {
+        order: 3;
     }
 }

@@ -25,6 +25,7 @@ io.on('connection', (socket) => {
     rooms.set(code, {
       code,
       users: new Map(),
+      queue: [],
       musicState: {
         videoId: 'dQw4w9WgXcQ',
         isPlaying: false,
@@ -49,7 +50,8 @@ io.on('connection', (socket) => {
 
     socket.emit('room-joined', {
       code,
-      musicState: room.musicState
+      musicState: room.musicState,
+      queue: room.queue
     });
 
     io.to(code).emit('user-joined', {
@@ -96,6 +98,37 @@ io.on('connection', (socket) => {
       room.musicState.currentTime = 0;
       room.musicState.timestamp = Date.now(); // Update timestamp on video change
       io.to(roomCode).emit('video-change', { videoId });
+    }
+  });
+
+  // --- QUEUE MANAGEMENT ---
+  socket.on('add-to-queue', ({ roomCode, video }) => {
+    const room = rooms.get(roomCode);
+    if (room) {
+      room.queue.push(video);
+      io.to(roomCode).emit('queue-updated', room.queue);
+    }
+  });
+
+  socket.on('play-next', ({ roomCode }) => {
+    const room = rooms.get(roomCode);
+    if (room && room.queue.length > 0) {
+      const nextVideo = room.queue.shift(); // Remove first item
+      room.musicState.videoId = nextVideo.videoId;
+      room.musicState.isPlaying = true;
+      room.musicState.currentTime = 0;
+      room.musicState.timestamp = Date.now();
+
+      io.to(roomCode).emit('video-change', { videoId: nextVideo.videoId });
+      io.to(roomCode).emit('queue-updated', room.queue);
+    }
+  });
+
+  socket.on('remove-from-queue', ({ roomCode, index }) => {
+    const room = rooms.get(roomCode);
+    if (room && room.queue[index]) {
+      room.queue.splice(index, 1);
+      io.to(roomCode).emit('queue-updated', room.queue);
     }
   });
 

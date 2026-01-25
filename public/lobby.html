@@ -52,7 +52,22 @@
         <!-- Main Body -->
         <div class="main-body">
 
-            <!-- Left: Player -->
+            <!-- Left: Queue -->
+            <aside class="queue-aside">
+                <div class="chat-header">
+                    <h3>📜 Up Next <span id="queueCount" style="font-size: 0.8em; color: var(--text-muted);">(0)</span>
+                    </h3>
+                </div>
+                <div id="queueList" class="queue-list">
+                    <!-- Queue items will be injected here -->
+                    <div class="queue-placeholder"
+                        style="text-align: center; color: var(--text-muted); font-size: 0.9em; padding: 20px;">
+                        Queue is empty
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Center: Player -->
             <div class="player-section">
                 <!-- Hidden YT Player (must be 'visible' to simple layout for API to init) -->
                 <div id="player-wrapper" style="position: absolute; top: -9999px; left: -9999px; visibility: hidden;">
@@ -85,6 +100,8 @@
                 <div style="width: 100%; max-width: 500px; margin-top: 40px; display: flex; gap: 10px;">
                     <input type="text" id="videoUrl" placeholder="Paste YouTube URL..." style="flex: 1;">
                     <button id="loadVideoBtn" class="btn-secondary">Load</button>
+                    <button id="addToQueueBtn" class="btn-secondary" style="background: rgba(255,255,255,0.1);">+
+                        Queue</button>
                 </div>
 
                 <div class="sync-status" id="syncStatus"
