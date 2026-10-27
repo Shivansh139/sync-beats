@@ -1,606 +1,514 @@
-// script.js - Main Frontend Logic
+// script.js - Frontend logic
 
 // ========================================
-// 1. LOGIN CHECK & INITIALIZATION
+// 1. LOGIN CHECK & STATE
 // ========================================
-// Check if user is logged in
 const username = localStorage.getItem('username');
 if (!username) {
-  // Redirect to login if no username found
   window.location.href = '/';
 }
 
-// Display username
-document.getElementById('usernameDisplay').textContent = `👤 ${username}`;
+const $ = (id) => document.getElementById(id);
 
-// ========================================
-// 2. SOCKET.IO CONNECTION
-// ========================================
 const socket = io();
 
-console.log('socket connected, id:', socket.id);
-
-socket.on('room-created', ({ code }) => {
-  console.log('Room created (frontend):', code);
-});
-
-
 let currentRoomCode = null;
+let player = null;
+let isPlayerReady = false;
+let pendingState = null;   // state received before the YouTube player finished loading
+let loadedVideoId = null;  // video currently loaded in the player
+let currentVersion = -1;   // track version we are on (sent back with "video-ended")
+let suppressUntil = 0;     // ignore YouTube events for a moment after a remote change
+let userCount = 1;
 
-const roomGate = document.getElementById('roomGate');
-const app = document.getElementById('app');
+const roomGate = $('roomGate');
+const app = $('app');
+const playPauseBtn = $('playPauseBtn');
+const seekBar = $('seekBar');
+const volumeBar = $('volumeBar');
 
-const createRoomBtn = document.getElementById('createRoomBtn');
-const joinRoomBtn = document.getElementById('joinRoomBtn');
-const roomCodeInput = document.getElementById('roomCodeInput');
+$('usernameDisplay').textContent = `👤 ${username}`;
 
-createRoomBtn.addEventListener('click', () => {
-  socket.emit('create-room');
-});
+// Small helpers. User text is always set with textContent, never innerHTML.
+function makeEl(tag, className, text) {
+  const el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
 
-joinRoomBtn.addEventListener('click', () => {
-  const code = roomCodeInput.value.trim().toUpperCase();
+function suppressEvents(ms = 1000) {
+  suppressUntil = Date.now() + ms;
+}
+
+function setStatus(text) {
+  $('syncStatus').textContent = text;
+}
+
+function updateUserCount(count) {
+  userCount = count;
+  $('userCount').textContent = `👥 ${count} user${count !== 1 ? 's' : ''} online`;
+}
+
+function updateAlbumArt(isPlaying) {
+  $('albumArt').classList.toggle('playing', isPlaying);
+  playPauseBtn.textContent = isPlaying ? '⏸' : '▶';
+}
+
+function showTrack(videoId, title) {
+  const albumArt = $('albumArt');
+  if (videoId) {
+    albumArt.style.backgroundImage = `url(https://img.youtube.com/vi/${videoId}/hqdefault.jpg)`;
+    albumArt.style.backgroundSize = 'cover';
+    albumArt.textContent = '';
+    $('trackTitle').textContent = title || 'YouTube video';
+  } else {
+    albumArt.style.backgroundImage = '';
+    albumArt.textContent = '🎵';
+    $('trackTitle').textContent = 'Nothing playing yet';
+  }
+}
+
+// ========================================
+// 2. ROOM GATE (create / join)
+// ========================================
+function showRoomGate() {
+  currentRoomCode = null;
+  app.style.display = 'none';
+  roomGate.style.display = '';
+}
+
+function joinRoom(rawCode) {
+  const code = rawCode.trim().toUpperCase();
   if (!code) {
     alert('Enter a room code');
     return;
   }
+  socket.emit('join-room', { code, username });
+}
 
-  socket.emit('join-room', {
-    code,
-    username
-  });
+$('createRoomBtn').addEventListener('click', () => socket.emit('create-room'));
+$('joinRoomBtn').addEventListener('click', () => joinRoom($('roomCodeInput').value));
+$('roomCodeInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') joinRoom(e.target.value);
 });
 
+socket.on('room-created', ({ code }) => joinRoom(code));
 
-socket.on('room-created', ({ code }) => {
+socket.on('room-joined', ({ code, musicState, queue, userCount: count }) => {
   currentRoomCode = code;
-  console.log('Room created:', code);
-
-  socket.emit('join-room', {
-    code,
-    username
-  });
-});
-
-socket.on('room-joined', ({ code, musicState, queue }) => {
-  currentRoomCode = code;
-  document.getElementById('roomCodeDisplay').textContent = `Room: ${code}`;
-
+  $('roomCodeDisplay').textContent = `ROOM: ${code}`;
   roomGate.style.display = 'none';
-  app.style.display = 'block';
+  app.style.display = 'flex';
 
+  updateUserCount(count);
+  renderQueue(queue);
+  applyState(musicState);
+});
 
-  if (isPlayerReady && musicState.videoId) {
-    setSyncing(true);
-    player.loadVideoById(musicState.videoId, musicState.currentTime);
+socket.on('room-error', (message) => {
+  if (currentRoomCode) showRoomGate(); // e.g. the room closed while we were reconnecting
+  alert(message);
+});
 
-    if (musicState.isPlaying) {
+// ========================================
+// 3. CONNECTION HANDLING
+// ========================================
+socket.on('connect', () => {
+  setStatus('🟢 Connected & Synced');
+  // After a reconnect the server doesn't know us yet, so rejoin the room
+  if (currentRoomCode) {
+    socket.emit('join-room', { code: currentRoomCode, username });
+  }
+});
+
+socket.on('disconnect', () => {
+  setStatus('🔴 Disconnected. Reconnecting…');
+});
+
+// ========================================
+// 4. YOUTUBE PLAYER
+// ========================================
+function onYouTubeIframeAPIReady() {
+  player = new YT.Player('player', {
+    height: '100%',
+    width: '100%',
+    playerVars: { playsinline: 1, controls: 1, rel: 0 },
+    events: {
+      onReady: onPlayerReady,
+      onStateChange: onPlayerStateChange
+    }
+  });
+}
+
+function onPlayerReady() {
+  isPlayerReady = true;
+  if (pendingState) {
+    const state = pendingState;
+    pendingState = null;
+    applyState(state);
+  }
+}
+
+// Apply the server's playback state to the local player
+function applyState(state) {
+  if (!state) return;
+  if (!isPlayerReady) {
+    pendingState = state;
+    return;
+  }
+
+  showTrack(state.videoId, state.title);
+
+  if (!state.videoId) {
+    loadedVideoId = null;
+    currentVersion = state.version;
+    updateAlbumArt(false);
+    return;
+  }
+
+  suppressEvents();
+  if (state.videoId !== loadedVideoId || state.version !== currentVersion) {
+    // New track: load it at the right position (autoplay only if the room is playing)
+    loadedVideoId = state.videoId;
+    currentVersion = state.version;
+    if (state.isPlaying) {
+      player.loadVideoById(state.videoId, state.position);
+    } else {
+      player.cueVideoById(state.videoId, state.position);
+    }
+  } else {
+    // Same track: jump to the room's position (this is also "Force Sync")
+    player.seekTo(state.position, true);
+    if (state.isPlaying) {
       player.playVideo();
     } else {
       player.pauseVideo();
     }
   }
-
-  if (queue) {
-    renderQueue(queue);
-  }
-});
-
-
-
-
-// 3.1 CUSTOM PLAYER UI ELEMENTS
-// ========================================
-const playPauseBtn = document.getElementById('playPauseBtn');
-const seekBar = document.getElementById('seekBar');
-const volumeBar = document.getElementById('volumeBar');
-
-
-
-
-// Track if we're currently syncing (to prevent feedback loops)
-// Track if we're currently syncing (to prevent feedback loops)
-let isSyncing = false;
-let syncTimeout = null;
-
-function setSyncing(value) {
-  isSyncing = value;
-  if (syncTimeout) clearTimeout(syncTimeout);
-
-  if (value === true) {
-    // Safety: Auto-reset after 500ms to prevent getting stuck
-    syncTimeout = setTimeout(() => {
-      isSyncing = false;
-    }, 500);
-  }
+  updateAlbumArt(state.isPlaying);
 }
 
-// ========================================
-// 3. YOUTUBE PLAYER SETUP
-// ========================================
-
-let player;
-let isPlayerReady = false;
-
-// This function is called automatically by YouTube IFrame API
-function onYouTubeIframeAPIReady() {
-  player = new YT.Player('player', {
-    height: '100%',
-    width: '100%',
-    videoId: 'dQw4w9WgXcQ', // Default video
-    playerVars: {
-      'playsinline': 1,
-      'controls': 1,
-      'rel': 0
-    },
-    events: {
-      'onReady': onPlayerReady,
-      'onStateChange': onPlayerStateChange
-    }
-  });
-}
-
-function onPlayerReady(event) {
-  isPlayerReady = true;
-  console.log('YouTube player ready');
-}
-// Play / Pause button click
-playPauseBtn.addEventListener('click', () => {
-  if (!isPlayerReady) return;
-
-  const state = player.getPlayerState();
-
-  if (state === YT.PlayerState.PLAYING) {
-    player.pauseVideo();
-  } else {
-    player.playVideo();
-  }
-});
-
-// ========================================
-
-// ========================================
-// 4. MUSIC SYNC - EMIT EVENTS
-// ========================================
+// Local player events → tell the server (unless we are applying a remote change)
 function onPlayerStateChange(event) {
-  // Don't emit events if we're syncing from another user
-  if (isSyncing) {
-    isSyncing = false;
-    return;
-  }
+  if (Date.now() < suppressUntil) return;
 
-  const currentTime = player.getCurrentTime();
+  const time = player.getCurrentTime();
 
-  // YT.PlayerState values:
-  // -1: unstarted, 0: ended, 1: playing, 2: paused, 3: buffering, 5: video cued
-
-  if (event.data === YT.PlayerState.PLAYING) {
-    socket.emit('play', {
-      roomCode: currentRoomCode,
-      currentTime
-    });
-
-    updateAlbumArt(true);
-    playPauseBtn.textContent = "⏸";
-  }
-  else if (event.data === YT.PlayerState.PAUSED) {
-    socket.emit('pause', {
-      roomCode: currentRoomCode,
-      currentTime
-    });
-
-    updateAlbumArt(false);
-    playPauseBtn.textContent = "▶";
-  }
-  else if (event.data === YT.PlayerState.ENDED) {
-    // Video ended, play next in queue
-    socket.emit('play-next', { roomCode: currentRoomCode });
-  }
-
-}
-
-// Update album art animation based on play state
-function updateAlbumArt(isPlaying) {
-  const albumArt = document.getElementById('albumArt');
-  if (isPlaying) {
-    albumArt.classList.add('playing');
-  } else {
-    albumArt.classList.remove('playing');
+  switch (event.data) {
+    case YT.PlayerState.PLAYING:
+      socket.emit('play', { roomCode: currentRoomCode, currentTime: time });
+      updateAlbumArt(true);
+      break;
+    case YT.PlayerState.PAUSED:
+      socket.emit('pause', { roomCode: currentRoomCode, currentTime: time });
+      updateAlbumArt(false);
+      break;
+    case YT.PlayerState.ENDED:
+      updateAlbumArt(false);
+      socket.emit('video-ended', { roomCode: currentRoomCode, version: currentVersion });
+      break;
   }
 }
 
-// ========================================
-// 5. MUSIC SYNC - RECEIVE EVENTS
-// ========================================
-
-// Receive initial sync state when joining
-// socket.on('sync-state', (state) => {
-//   if (isPlayerReady && state.videoId) {
-//     isSyncing = true;
-//     player.loadVideoById(state.videoId, state.currentTime);
-
-//     if (state.isPlaying) {
-//       player.playVideo();
-//     } else {
-//       player.pauseVideo();
-//     }
-//   }
-// });
-
-// Receive play event from other users
-socket.on('play', (data) => {
-  if (isPlayerReady) {
-    setSyncing(true);
-    player.seekTo(data.currentTime, true);
-    player.playVideo();
-    updateAlbumArt(true); // Animate album art
-  }
-});
-
-// Receive pause event from other users
-socket.on('pause', (data) => {
-  if (isPlayerReady) {
-    setSyncing(true);
-    player.seekTo(data.currentTime, true);
+playPauseBtn.addEventListener('click', () => {
+  if (!isPlayerReady || !loadedVideoId) return;
+  if (player.getPlayerState() === YT.PlayerState.PLAYING) {
     player.pauseVideo();
-    updateAlbumArt(false); // Stop animation
+  } else {
+    player.playVideo();
   }
 });
 
-// Receive seek event from other users
-socket.on('seek', (data) => {
-  if (isPlayerReady) {
-    setSyncing(true);
-    player.seekTo(data.currentTime, true);
-  }
-});
-
-// Receive video change event
-socket.on('video-change', (data) => {
-  if (isPlayerReady) {
-    setSyncing(true);
-    player.loadVideoById(data.videoId, 0);
-
-    const thumbnail = `https://img.youtube.com/vi/${data.videoId}/hqdefault.jpg`;
-    const albumArt = document.getElementById('albumArt');
-    albumArt.style.backgroundImage = `url(${thumbnail})`;
-    albumArt.style.backgroundSize = 'cover';
-    albumArt.textContent = '';
-  }
-});
-
-// Update seek bar while playing
-setInterval(() => {
+// Remote playback events
+socket.on('play', ({ currentTime }) => {
   if (!isPlayerReady) return;
+  suppressEvents();
+  if (Math.abs(player.getCurrentTime() - currentTime) > 0.75) {
+    player.seekTo(currentTime, true);
+  }
+  player.playVideo();
+  updateAlbumArt(true);
+});
 
+socket.on('pause', ({ currentTime }) => {
+  if (!isPlayerReady) return;
+  suppressEvents();
+  if (Math.abs(player.getCurrentTime() - currentTime) > 0.75) {
+    player.seekTo(currentTime, true);
+  }
+  player.pauseVideo();
+  updateAlbumArt(false);
+});
+
+socket.on('seek', ({ currentTime }) => {
+  if (!isPlayerReady) return;
+  suppressEvents();
+  player.seekTo(currentTime, true);
+});
+
+socket.on('video-change', (state) => applyState(state));
+
+socket.on('playback-stopped', ({ version }) => {
+  currentVersion = version;
+  loadedVideoId = null;
+  if (isPlayerReady) player.stopVideo();
+  showTrack(null);
+  updateAlbumArt(false);
+});
+
+socket.on('sync-response', ({ musicState }) => applyState(musicState));
+
+$('syncNowBtn').addEventListener('click', () => {
+  socket.emit('request-sync', currentRoomCode);
+});
+
+// ========================================
+// 5. PLAYER CONTROLS (seek & volume)
+// ========================================
+volumeBar.addEventListener('input', () => {
+  if (isPlayerReady) player.setVolume(volumeBar.value);
+});
+
+// Update the seek bar while playing, but not while the user is dragging it
+setInterval(() => {
+  if (!isPlayerReady || !loadedVideoId || document.activeElement === seekBar) return;
   const duration = player.getDuration();
-  const currentTime = player.getCurrentTime();
-
   if (duration > 0) {
-    seekBar.value = (currentTime / duration) * 100;
+    seekBar.value = (player.getCurrentTime() / duration) * 100;
   }
 }, 500);
 
-volumeBar.addEventListener('input', () => {
-  if (!isPlayerReady) return;
-  player.setVolume(volumeBar.value);
+seekBar.addEventListener('change', () => {
+  if (!isPlayerReady || !loadedVideoId) return;
+  const target = (seekBar.value / 100) * player.getDuration();
+  suppressEvents(800);
+  player.seekTo(target, true);
+  socket.emit('seek', { roomCode: currentRoomCode, currentTime: target });
 });
-
-
-seekBar.addEventListener('input', () => {
-  if (!isPlayerReady) return;
-
-  const duration = player.getDuration();
-  const seekTo = (seekBar.value / 100) * duration;
-
-  isSyncing = true;
-  player.seekTo(seekTo, true);
-  socket.emit('seek', {
-    roomCode: currentRoomCode,
-    currentTime: seekTo
-  });
-
-});
-
 
 // ========================================
-// 6. VIDEO URL LOADING
+// 6. ADDING MUSIC (search, paste a link, queue)
 // ========================================
-document.getElementById('loadVideoBtn').addEventListener('click', () => {
-  const url = document.getElementById('videoUrl').value.trim();
-  const videoId = extractVideoId(url);
-
-  if (videoId) {
-    // 1. Emit to server (so others get it)
-    socket.emit('video-change', {
-      roomCode: currentRoomCode,
-      videoId
-    });
-
-    // 2. Load locally IMMEDIATELY (Fix for "not playing on my screen")
-    if (isPlayerReady) {
-      setSyncing(true); // Prevent loop
-      player.loadVideoById(videoId, 0);
-
-      const thumbnail = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
-      const albumArt = document.getElementById('albumArt');
-      albumArt.style.backgroundImage = `url(${thumbnail})`;
-      albumArt.style.backgroundSize = 'cover';
-      albumArt.textContent = '';
-    }
-
-    document.getElementById('videoUrl').value = '';
-  } else {
-    alert('Invalid YouTube URL. Please enter a valid URL.');
-  }
-});
-
-// Extract video ID from YouTube URL
 function extractVideoId(url) {
   const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/,
     /^([a-zA-Z0-9_-]{11})$/
   ];
-
-  for (let pattern of patterns) {
+  for (const pattern of patterns) {
     const match = url.match(pattern);
     if (match) return match[1];
   }
   return null;
 }
 
-// ========================================
-// 6.1 QUEUE LOGIC
-// ========================================
-
-document.getElementById('addToQueueBtn').addEventListener('click', () => {
-  const url = document.getElementById('videoUrl').value.trim();
-  const videoId = extractVideoId(url);
-
-  if (videoId) {
-    // Fetch metadata (title) before adding
-    fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`)
-      .then(res => res.json())
-      .then(data => {
-        const title = data.title || 'Unknown Video';
-        const videoData = {
-          videoId,
-          title,
-          thumbnail: `https://img.youtube.com/vi/${videoId}/default.jpg`,
-          addedBy: username
-        };
-
-        socket.emit('add-to-queue', {
-          roomCode: currentRoomCode,
-          video: videoData
-        });
-
-        document.getElementById('videoUrl').value = ''; // Clear input
-      })
-      .catch(err => {
-        console.error('Error fetching video title:', err);
-        // Fallback if fetch fails
-        const videoData = {
-          videoId,
-          title: 'Video ' + videoId, // Fallback title
-          thumbnail: `https://img.youtube.com/vi/${videoId}/default.jpg`,
-          addedBy: username
-        };
-        socket.emit('add-to-queue', {
-          roomCode: currentRoomCode,
-          video: videoData
-        });
-        document.getElementById('videoUrl').value = '';
-      });
-
-  } else {
-    alert('Invalid YouTube URL');
+// Get a video's title from YouTube's oEmbed service, with a fallback
+async function fetchTitle(videoId) {
+  try {
+    const res = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`);
+    const data = await res.json();
+    return data.title || `YouTube video ${videoId}`;
+  } catch {
+    return `YouTube video ${videoId}`;
   }
+}
+
+function requireRoom() {
+  if (!currentRoomCode) {
+    alert('Join a room first');
+    return false;
+  }
+  return true;
+}
+
+// Paste-a-link: play now
+$('loadVideoBtn').addEventListener('click', async () => {
+  if (!requireRoom()) return;
+  const videoId = extractVideoId($('videoUrl').value.trim());
+  if (!videoId) {
+    alert('Invalid YouTube URL. Please enter a valid link.');
+    return;
+  }
+  const title = await fetchTitle(videoId);
+  socket.emit('video-change', { roomCode: currentRoomCode, videoId, title });
+  $('videoUrl').value = '';
 });
 
-socket.on('queue-updated', (queue) => {
-  renderQueue(queue);
+// Paste-a-link: add to queue
+$('addToQueueBtn').addEventListener('click', async () => {
+  if (!requireRoom()) return;
+  const videoId = extractVideoId($('videoUrl').value.trim());
+  if (!videoId) {
+    alert('Invalid YouTube URL');
+    return;
+  }
+  const title = await fetchTitle(videoId);
+  socket.emit('add-to-queue', { roomCode: currentRoomCode, video: { videoId, title } });
+  $('videoUrl').value = '';
 });
+
+// --- In-app YouTube search ---
+const searchInput = $('searchInput');
+const searchResults = $('searchResults');
+
+function setSearchMessage(text) {
+  searchResults.replaceChildren(makeEl('div', 'search-message', text));
+}
+
+async function runSearch() {
+  const q = searchInput.value.trim();
+  if (!q) return;
+  setSearchMessage('Searching…');
+
+  try {
+    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Search failed');
+    renderSearchResults(data.results);
+  } catch (err) {
+    setSearchMessage(err.message);
+  }
+}
+
+function renderSearchResults(results) {
+  searchResults.replaceChildren();
+  if (results.length === 0) {
+    setSearchMessage('No results found.');
+    return;
+  }
+
+  results.forEach((item) => {
+    const row = makeEl('div', 'search-result');
+
+    const img = document.createElement('img');
+    img.src = item.thumbnail;
+    img.alt = '';
+
+    const info = makeEl('div', 'search-result-info');
+    info.append(
+      makeEl('div', 'search-result-title', item.title),
+      makeEl('div', 'search-result-channel', item.channel)
+    );
+
+    const actions = makeEl('div', 'search-result-actions');
+    const playBtn = makeEl('button', 'btn-primary', '▶ Play');
+    const queueBtn = makeEl('button', 'btn-secondary', '+ Queue');
+
+    playBtn.addEventListener('click', () => {
+      if (!requireRoom()) return;
+      socket.emit('video-change', { roomCode: currentRoomCode, videoId: item.videoId, title: item.title });
+    });
+
+    queueBtn.addEventListener('click', () => {
+      if (!requireRoom()) return;
+      socket.emit('add-to-queue', {
+        roomCode: currentRoomCode,
+        video: { videoId: item.videoId, title: item.title }
+      });
+      queueBtn.textContent = '✓ Added';
+      queueBtn.disabled = true;
+    });
+
+    actions.append(playBtn, queueBtn);
+    row.append(img, info, actions);
+    searchResults.appendChild(row);
+  });
+}
+
+$('searchBtn').addEventListener('click', runSearch);
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') runSearch();
+});
+
+// ========================================
+// 7. QUEUE
+// ========================================
+socket.on('queue-updated', (queue) => renderQueue(queue));
 
 function renderQueue(queue) {
-  const queueList = document.getElementById('queueList');
-  const queueCount = document.getElementById('queueCount');
-
-  queueList.innerHTML = '';
-  queueCount.textContent = `(${queue.length})`;
+  const queueList = $('queueList');
+  $('queueCount').textContent = `(${queue.length})`;
+  queueList.replaceChildren();
 
   if (queue.length === 0) {
-    queueList.innerHTML = `
-            <div class="queue-placeholder" style="text-align: center; color: var(--text-muted); font-size: 0.9em; padding: 20px;">
-                Queue is empty
-            </div>
-        `;
+    queueList.appendChild(makeEl('div', 'queue-placeholder', 'Queue is empty'));
     return;
   }
 
   queue.forEach((item, index) => {
-    const div = document.createElement('div');
-    div.className = 'queue-item glass-panel';
-    div.style.display = 'flex';
-    div.style.alignItems = 'center';
-    div.style.gap = '10px';
-    div.style.padding = '8px';
-    div.style.marginBottom = '5px';
-    div.style.borderRadius = '8px';
-    div.style.background = 'rgba(255,255,255,0.05)';
+    const row = makeEl('div', 'queue-row');
 
-    div.innerHTML = `
-            <img src="${item.thumbnail}" style="width: 50px; height: 38px; object-fit: cover; border-radius: 4px;">
-            <div style="flex: 1; overflow: hidden;">
-                <div style="font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500;">${item.title}</div>
-                <div style="font-size: 0.7rem; color: var(--text-muted);">Added by ${item.addedBy}</div>
-            </div>
-            <button onclick="removeFromQueue(${index})" style="background: none; border: none; color: #ff5555; cursor: pointer; padding: 5px;">✖</button>
-        `;
-    queueList.appendChild(div);
-  });
-}
+    const img = document.createElement('img');
+    img.src = item.thumbnail;
+    img.alt = '';
 
-// Make globally available so onclick works
-window.removeFromQueue = (index) => {
-  socket.emit('remove-from-queue', {
-    roomCode: currentRoomCode,
-    index
-  });
-};
+    const info = makeEl('div', 'queue-row-info');
+    info.append(
+      makeEl('div', 'queue-row-title', item.title),
+      makeEl('div', 'queue-row-meta', `Added by ${item.addedBy}`)
+    );
 
-// ========================================
-// 7. CHAT FUNCTIONALITY
-// ========================================
-
-// Send chat message
-function sendMessage() {
-  const input = document.getElementById('chatInput');
-  const message = input.value.trim();
-
-  if (message) {
-    socket.emit('chat-message', {
-      roomCode: currentRoomCode,
-      message
+    const removeBtn = makeEl('button', 'queue-remove', '✖');
+    removeBtn.title = 'Remove from queue';
+    removeBtn.addEventListener('click', () => {
+      socket.emit('remove-from-queue', { roomCode: currentRoomCode, index });
     });
 
-    input.value = '';
-  }
+    row.append(img, info, removeBtn);
+    queueList.appendChild(row);
+  });
 }
 
-// Send button click
-document.getElementById('sendBtn').addEventListener('click', sendMessage);
+// ========================================
+// 8. CHAT
+// ========================================
+function sendMessage() {
+  const input = $('chatInput');
+  const message = input.value.trim();
+  if (!message || !currentRoomCode) return;
+  socket.emit('chat-message', { roomCode: currentRoomCode, message });
+  input.value = '';
+}
 
-// Enter key to send
-document.getElementById('chatInput').addEventListener('keypress', (e) => {
-  if (e.key === 'Enter') {
-    sendMessage();
-  }
+$('sendBtn').addEventListener('click', sendMessage);
+$('chatInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendMessage();
 });
 
-// Receive chat messages
-socket.on('chat-message', (data) => {
-  const chatMessages = document.getElementById('chatMessages');
-
-  const messageDiv = document.createElement('div');
-  // Check if it's my message (simple check based on username)
-  // In a real app we'd use socket ID, but for now this works Visually
-  const isMe = data.username === username;
-
-  messageDiv.className = isMe ? 'message-bubble' : 'message-bubble';
-  // Ideally we would add 'me' class if we had different styles, 
-  // but for now style.css defines message-bubble generic. 
-  // Let's add a style for "own" messages if needed later.
-
-  // Customize bubble style slightly for self if we want, or just keep uniform
-  if (isMe) {
-    messageDiv.style.background = 'rgba(29, 185, 84, 0.2)'; // Green tint for me
-    messageDiv.style.alignSelf = 'flex-end';
-    messageDiv.style.borderBottomLeftRadius = '18px';
-    messageDiv.style.borderBottomRightRadius = '4px';
-  } else {
-    messageDiv.style.alignSelf = 'flex-start';
-  }
-
-  messageDiv.innerHTML = `
-    <span class="message-meta">${data.username} <span style="font-weight:400; color:#888; margin-left:5px; font-size:0.7em;">${data.timestamp}</span></span>
-    ${escapeHtml(data.message)}
-  `;
-
-  chatMessages.appendChild(messageDiv);
-
-  // Auto-scroll to bottom
+function appendChatBubble(node) {
+  const chatMessages = $('chatMessages');
+  chatMessages.appendChild(node);
   chatMessages.scrollTop = chatMessages.scrollHeight;
-});
-
-// Escape HTML to prevent XSS
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
 }
 
-// ========================================
-// 8. USER PRESENCE
-// ========================================
+socket.on('chat-message', (data) => {
+  const bubble = makeEl('div', 'message-bubble');
+  if (data.username === username) {
+    bubble.classList.add('own');
+  }
 
-// User joined notification
+  const meta = makeEl('span', 'message-meta');
+  meta.append(`${data.username} `);
+  meta.appendChild(makeEl('span', 'message-time', data.timestamp));
+
+  bubble.append(meta, document.createTextNode(data.message));
+  appendChatBubble(bubble);
+});
+
 socket.on('user-joined', (data) => {
   updateUserCount(data.userCount);
-
-  const chatMessages = document.getElementById('chatMessages');
-  const messageDiv = document.createElement('div');
-  messageDiv.className = 'message-bubble system'; // Updated class
-  messageDiv.textContent = `${data.username} joined the session`;
-  chatMessages.appendChild(messageDiv);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  appendChatBubble(makeEl('div', 'message-bubble system', `${data.username} joined the session`));
 });
 
-// User left notification
 socket.on('user-left', (data) => {
   updateUserCount(data.userCount);
-
-  const chatMessages = document.getElementById('chatMessages');
-  const messageDiv = document.createElement('div');
-  messageDiv.className = 'message-bubble system'; // Updated class
-  messageDiv.textContent = `${data.username} left the session`;
-  chatMessages.appendChild(messageDiv);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-});
-
-
-function updateUserCount(count) {
-  document.getElementById('userCount').textContent = `${count} user${count !== 1 ? 's' : ''} online`;
-}
-
-// ========================================
-// 9. CONNECTION STATUS & SYNC DEBUG
-// ========================================
-socket.on('connect', () => {
-  document.getElementById('syncStatus').innerHTML = '🟢 Connected';
-});
-
-socket.on('disconnect', () => {
-  document.getElementById('syncStatus').innerHTML = '🔴 Disconnected';
-});
-
-// Force Sync Button
-document.getElementById('syncNowBtn').addEventListener('click', () => {
-  socket.emit('request-sync', currentRoomCode);
-});
-
-// Receive Sync Data from Server
-socket.on('sync-response', (data) => {
-  if (!isPlayerReady) return;
-
-  // Calculate latency (approx)
-  // For now, straight apply server time
-  const serverTime = data.musicState.currentTime;
-  const isPlaying = data.musicState.isPlaying;
-  const timestamp = data.musicState.timestamp; // When the server state was last updated
-
-  // If playing, calculate elapsed time since last update
-  let targetTime = serverTime;
-  if (isPlaying) {
-    const timeDiff = (Date.now() - timestamp) / 1000;
-    targetTime += timeDiff;
-  }
-
-  console.log(`Syncing to ${targetTime} (Server: ${serverTime}, diff: ${Date.now() - timestamp}ms)`);
-  document.getElementById('debugInfo').textContent = `Seek: ${targetTime.toFixed(2)}s | Lag: ${(Date.now() - timestamp)}ms`;
-
-  player.seekTo(targetTime, true);
-  if (isPlaying) {
-    player.playVideo();
-  } else {
-    player.pauseVideo();
-  }
+  appendChatBubble(makeEl('div', 'message-bubble system', `${data.username} left the session`));
 });
 
 // ========================================
-// 10. LOGOUT FUNCTIONALITY
+// 9. LOGOUT
 // ========================================
-document.getElementById('logoutBtn').addEventListener('click', () => {
+$('logoutBtn').addEventListener('click', () => {
   localStorage.removeItem('username');
   window.location.href = '/';
 });

@@ -96,12 +96,22 @@
                     </div>
                 </div>
 
-                <!-- Load Video Input -->
-                <div style="width: 100%; max-width: 500px; margin-top: 40px; display: flex; gap: 10px;">
-                    <input type="text" id="videoUrl" placeholder="Paste YouTube URL..." style="flex: 1;">
-                    <button id="loadVideoBtn" class="btn-secondary">Load</button>
-                    <button id="addToQueueBtn" class="btn-secondary" style="background: rgba(255,255,255,0.1);">+
-                        Queue</button>
+                <!-- Search YouTube from inside the app -->
+                <div class="search-panel">
+                    <div class="search-row">
+                        <input type="text" id="searchInput" placeholder="Search YouTube for a song..." style="flex: 1;">
+                        <button id="searchBtn" class="btn-secondary">Search</button>
+                    </div>
+                    <div id="searchResults" class="search-results"></div>
+                </div>
+
+                <!-- Paste a link instead -->
+                <div class="search-panel link-panel">
+                    <div class="search-row">
+                        <input type="text" id="videoUrl" placeholder="Or paste a YouTube link..." style="flex: 1;">
+                        <button id="loadVideoBtn" class="btn-secondary">Play</button>
+                        <button id="addToQueueBtn" class="btn-secondary">+ Queue</button>
+                    </div>
                 </div>
 
                 <div class="sync-status" id="syncStatus"
